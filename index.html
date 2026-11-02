@@ -1,661 +1,1248 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
-<head>
-<meta charset="utf-8">
-<title>DOOM-ish JS</title>
-<style>
-  html, body {
-    margin: 0; padding: 0;
-    background: #111;
-    color: #ccc;
-    font-family: monospace;
-    overflow: hidden;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-  }
-  #wrap { position: relative; }
-  canvas {
-    display: block;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
-    border: 2px solid #333;
-    cursor: crosshair;
-  }
-  #help {
-    margin-top: 10px;
-    font-size: 13px;
-    text-align: center;
-  }
-  #overlay {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.7);
-    color: #f55; font-size: 32px;
-    font-weight: bold;
-    pointer-events: none;
-    display: none;
-  }
-</style>
-</head>
-<body>
-<div id="wrap">
-  <canvas id="screen" width="640" height="400"></canvas>
-  <div id="overlay">GAME OVER</div>
-</div>
-<div id="help">
-  <b>W/S</b> — вперёд/назад &nbsp;|&nbsp;
-  <b>A/D</b> — поворот &nbsp;|&nbsp;
-  <b>Q/E</b> — стрейф &nbsp;|&nbsp;
-  <b>Space / клик</b> — выстрел &nbsp;|&nbsp;
-  <b>R</b> — рестарт
-</div>
+  <head>
+    <meta charset="utf-8" />
+    <title>DOOM-ish JS — Classic FPS</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0a0a0c;
+        color: #bbb;
+        font-family: monospace;
+        overflow: hidden;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+      #wrap {
+        position: relative;
+        width: min(1280px, 100vw);
+        height: min(800px, calc(100vh - 40px));
+        aspect-ratio: 640 / 400;
+      }
+      /* В полноэкранном режиме — на весь экран */
+      #wrap:fullscreen,
+      #wrap:-webkit-full-screen {
+        width: 100vw;
+        height: 100vh;
+        max-width: none;
+        max-height: none;
+        aspect-ratio: auto;
+        border: none;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: 1px solid #222;
+        cursor: crosshair;
+        box-sizing: border-box;
+      }
+      #wrap:fullscreen canvas,
+      #wrap:-webkit-full-screen canvas {
+        border: none;
+      }
+      #help {
+        margin-top: 8px;
+        font-size: 12px;
+        text-align: center;
+        padding: 0 10px;
+        opacity: 0.7;
+      }
+      #overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.75);
+        color: #d33;
+        font-size: 46px;
+        font-weight: bold;
+        letter-spacing: 4px;
+        pointer-events: none;
+        display: none;
+        text-shadow: 0 0 20px #f00;
+      }
+      #pause {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        background: rgba(0, 0, 0, 0.65);
+        color: #eee;
+        font-size: 22px;
+        text-align: center;
+        cursor: pointer;
+        gap: 12px;
+      }
+      #pause small {
+        font-size: 14px;
+        opacity: 0.6;
+      }
+      #fs-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 36px;
+        height: 36px;
+        background: rgba(0, 0, 0, 0.5);
+        color: #ccc;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        font-size: 18px;
+        cursor: pointer;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+      }
+      #fs-btn:hover {
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="wrap">
+      <canvas id="screen" width="640" height="400"></canvas>
+      <button id="fs-btn" title="Полный экран (F)">⛶</button>
+      <div id="overlay">GAME OVER</div>
+      <div id="pause">
+        <div>🖱 Кликните, чтобы захватить мышь</div>
+        <small
+          >W/S — вперёд/назад · A/D — стрейф · ЛКМ — выстрел · F — полный экран
+          · ESC — пауза</small
+        >
+      </div>
+    </div>
+    <div id="help">
+      <b>W/S</b> — вперёд/назад &nbsp;|&nbsp; <b>A/D</b> — стрейф &nbsp;|&nbsp;
+      <b>Мышь</b> — поворот &nbsp;|&nbsp; <b>ЛКМ / Space</b> — выстрел
+      &nbsp;|&nbsp; <b>F</b> — полный экран &nbsp;|&nbsp; <b>R</b> — рестарт
+      &nbsp;|&nbsp; <b>ESC</b> — пауза
+    </div>
 
-<script>
-(() => {
-"use strict";
+    <script>
+      (() => {
+        "use strict";
 
-// ============ Константы ============
-const SCREEN_W = 640;
-const SCREEN_H = 400;
-const MAP_W = 24;
-const MAP_H = 24;
-const NUM_MONSTERS = 8;
-const TEX_SIZE = 64;
+        // ============ Константы ============
+        const SCREEN_W = 640;
+        const SCREEN_H = 400;
+        const MAP_W = 24;
+        const MAP_H = 24;
+        const NUM_MONSTERS = 8;
+        const TEX_SIZE = 128;
+        const FOG_START = 3.5;
+        const FOG_END = 16.0;
+        const MOUSE_SENS = 0.0022;
 
-// ============ Карта ============
-const worldMap = [
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,1,0,0,0,1,1,1,1,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,1,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,1,0,0,0,1,1,1,1,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-];
+        // ============ Карта ============
+        const worldMap = [
+          [
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1,
+          ],
+          [
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1,
+          ],
+        ];
 
-// ============ Canvas ============
-const canvas = document.getElementById('screen');
-const ctx = canvas.getContext('2d');
-ctx.imageSmoothingEnabled = false;
+        // ============ Canvas ============
+        const wrap = document.getElementById("wrap");
+        const canvas = document.getElementById("screen");
+        const ctx = canvas.getContext("2d");
+        ctx.imageSmoothingEnabled = false;
 
-// ImageData — наш пиксельный буфер (RGBA)
-const imageData = ctx.createImageData(SCREEN_W, SCREEN_H);
-const buf = new Uint32Array(imageData.data.buffer); // ABGR в little-endian = 0xAABBGGRR
+        const imageData = ctx.createImageData(SCREEN_W, SCREEN_H);
+        const buf = new Uint32Array(imageData.data.buffer);
 
-const overlay = document.getElementById('overlay');
+        const overlay = document.getElementById("overlay");
+        const pauseEl = document.getElementById("pause");
+        const fsBtn = document.getElementById("fs-btn");
 
-// ============ Цвета ============
-// В Uint32Array на little-endian порядок байтов: 0xAABBGGRR
-function rgb(r, g, b) {
-    return (255 << 24) | (b << 16) | (g << 8) | r;
-}
+        // ============ Цвета ============
+        function rgb(r, g, b) {
+          r = r < 0 ? 0 : r > 255 ? 255 : r | 0;
+          g = g < 0 ? 0 : g > 255 ? 255 : g | 0;
+          b = b < 0 ? 0 : b > 255 ? 255 : b | 0;
+          return (255 << 24) | (b << 16) | (g << 8) | r;
+        }
+        function getR(c) {
+          return c & 0xff;
+        }
+        function getG(c) {
+          return (c >> 8) & 0xff;
+        }
+        function getB(c) {
+          return (c >> 16) & 0xff;
+        }
 
-function putPixel(x, y, c) {
-    if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) return;
-    buf[y * SCREEN_W + x] = c;
-}
+        function mix(c1, c2, t) {
+          if (t < 0) t = 0;
+          if (t > 1) t = 1;
+          return rgb(
+            getR(c1) * (1 - t) + getR(c2) * t,
+            getG(c1) * (1 - t) + getG(c2) * t,
+            getB(c1) * (1 - t) + getB(c2) * t,
+          );
+        }
 
-function fillRect(x, y, w, h, c) {
-    const x0 = Math.max(0, x), y0 = Math.max(0, y);
-    const x1 = Math.min(SCREEN_W, x + w), y1 = Math.min(SCREEN_H, y + h);
-    for (let j = y0; j < y1; j++)
-        for (let i = x0; i < x1; i++)
-            buf[j * SCREEN_W + i] = c;
-}
+        function darken(c, k) {
+          return rgb(getR(c) * k, getG(c) * k, getB(c) * k);
+        }
 
-// ============ Текстуры ============
-// Храним как Uint32Array[TEX_SIZE*TEX_SIZE] для каждой из 3 текстур
-const tex = [
-    new Uint32Array(TEX_SIZE * TEX_SIZE),
-    new Uint32Array(TEX_SIZE * TEX_SIZE),
-    new Uint32Array(TEX_SIZE * TEX_SIZE),
-];
+        function putPixel(x, y, c) {
+          if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) return;
+          buf[y * SCREEN_W + x] = c;
+        }
 
-function genBrick(out) {
-    for (let y = 0; y < TEX_SIZE; y++) {
-        for (let x = 0; x < TEX_SIZE; x++) {
-            const by = Math.floor(y / 16);
-            const shift = (by & 1) ? 16 : 0;
-            const bx = (x + shift) % 32;
-            let c;
-            if (y % 16 < 2 || bx < 2) c = rgb(60, 30, 20);
-            else {
-                const noise = ((x * 13 + y * 7) % 30) - 15;
-                c = rgb(140 + noise, 70 + (noise >> 1), 50 + (noise >> 1));
+        function fillRect(x, y, w, h, c) {
+          const x0 = Math.max(0, x),
+            y0 = Math.max(0, y);
+          const x1 = Math.min(SCREEN_W, x + w),
+            y1 = Math.min(SCREEN_H, y + h);
+          for (let j = y0; j < y1; j++)
+            for (let i = x0; i < x1; i++) buf[j * SCREEN_W + i] = c;
+        }
+
+        // ============ Шум ============
+        function makeNoise(seed) {
+          const n = new Float32Array(256);
+          let s = seed | 0;
+          for (let i = 0; i < 256; i++) {
+            s = (s * 1103515245 + 12345) & 0x7fffffff;
+            n[i] = (s & 0xffff) / 65535;
+          }
+          return function (x, y) {
+            return n[((x * 31 + y * 17) ^ (x * y * 7)) & 0xff];
+          };
+        }
+
+        function smoothNoise(noiseFn, x, y, scale) {
+          const fx = x / scale,
+            fy = y / scale;
+          const x0 = Math.floor(fx),
+            y0 = Math.floor(fy);
+          const tx = fx - x0,
+            ty = fy - y0;
+          const sx = tx * tx * (3 - 2 * tx);
+          const sy = ty * ty * (3 - 2 * ty);
+          const n00 = noiseFn(x0, y0);
+          const n10 = noiseFn(x0 + 1, y0);
+          const n01 = noiseFn(x0, y0 + 1);
+          const n11 = noiseFn(x0 + 1, y0 + 1);
+          const nx0 = n00 * (1 - sx) + n10 * sx;
+          const nx1 = n01 * (1 - sx) + n11 * sx;
+          return nx0 * (1 - sy) + nx1 * sy;
+        }
+
+        // ============ Текстуры ============
+        const tex = [
+          new Uint32Array(TEX_SIZE * TEX_SIZE),
+          new Uint32Array(TEX_SIZE * TEX_SIZE),
+          new Uint32Array(TEX_SIZE * TEX_SIZE),
+        ];
+
+        function genBrick(out) {
+          const noise = makeNoise(1337);
+          const BRICK_H = 16;
+          const BRICK_W = 32;
+          const MORTAR = 2;
+
+          for (let y = 0; y < TEX_SIZE; y++) {
+            for (let x = 0; x < TEX_SIZE; x++) {
+              const row = Math.floor(y / BRICK_H);
+              const shift = row & 1 ? BRICK_W / 2 : 0;
+              const bx = (x + shift) % BRICK_W;
+              const by = y % BRICK_H;
+
+              if (by < MORTAR || bx < MORTAR) {
+                const n = noise(x, y) * 0.3 + 0.5;
+                const v = 55 + n * 25;
+                out[y * TEX_SIZE + x] = rgb(v + 8, v + 4, v - 2);
+                continue;
+              }
+
+              const baseNoise = smoothNoise(noise, x, y, 8);
+              const fineNoise = noise(x * 3, y * 3);
+
+              let r = 135 + baseNoise * 40 - 20;
+              let g = 65 + baseNoise * 25 - 10;
+              let b = 50 + baseNoise * 15 - 5;
+
+              const speck = fineNoise - 0.5;
+              r += speck * 25;
+              g += speck * 15;
+              b += speck * 10;
+
+              if (by < MORTAR + 2) {
+                r += 25;
+                g += 20;
+                b += 15;
+              } else if (by > BRICK_H - 3) {
+                r -= 30;
+                g -= 20;
+                b -= 15;
+              }
+              if (bx < MORTAR + 2) {
+                r += 15;
+                g += 10;
+                b += 8;
+              } else if (bx > BRICK_W - 3) {
+                r -= 15;
+                g -= 10;
+                b -= 8;
+              }
+
+              out[y * TEX_SIZE + x] = rgb(r, g, b);
             }
-            out[y * TEX_SIZE + x] = c;
+          }
         }
-    }
-}
 
-function genStone(out) {
-    for (let y = 0; y < TEX_SIZE; y++) {
-        for (let x = 0; x < TEX_SIZE; x++) {
-            const n = ((x * 91 + y * 37) ^ (x * y * 7)) & 0x3F;
-            const v = 90 + n;
-            out[y * TEX_SIZE + x] = rgb(v, v, v - 10);
+        function genStone(out) {
+          const noise = makeNoise(4242);
+          const BLOCK = 32;
+          const MORTAR = 3;
+
+          for (let y = 0; y < TEX_SIZE; y++) {
+            for (let x = 0; x < TEX_SIZE; x++) {
+              const bx = x % BLOCK;
+              const by = y % BLOCK;
+
+              if (bx < MORTAR || by < MORTAR) {
+                const n = noise(x, y) * 0.3 + 0.3;
+                const v = 35 + n * 20;
+                out[y * TEX_SIZE + x] = rgb(v, v, v + 2);
+                continue;
+              }
+
+              const baseNoise = smoothNoise(noise, x, y, 12);
+              const midNoise = smoothNoise(noise, x + 100, y, 5);
+              const fineNoise = noise(x * 4, y * 4);
+
+              let v = 95 + baseNoise * 40 + midNoise * 20 - 30;
+              v += (fineNoise - 0.5) * 15;
+
+              if (by < MORTAR + 2) v += 20;
+              else if (by > BLOCK - 4) v -= 25;
+              if (bx < MORTAR + 2) v += 12;
+              else if (bx > BLOCK - 4) v -= 12;
+
+              out[y * TEX_SIZE + x] = rgb(v - 5, v, v + 8);
+            }
+          }
         }
-    }
-}
 
-function genPanel(out) {
-    for (let y = 0; y < TEX_SIZE; y++) {
-        for (let x = 0; x < TEX_SIZE; x++) {
-            const border = (x < 4 || x >= TEX_SIZE - 4 || y < 4 || y >= TEX_SIZE - 4);
-            const inner = (x > 8 && x < TEX_SIZE - 8 && y > 8 && y < TEX_SIZE - 8);
-            let c;
-            if (border) c = rgb(40, 40, 50);
-            else if (inner) c = rgb(100, 120, 160);
-            else c = rgb(70, 80, 100);
-            out[y * TEX_SIZE + x] = c;
+        function genPanel(out) {
+          const noise = makeNoise(7777);
+
+          for (let y = 0; y < TEX_SIZE; y++) {
+            for (let x = 0; x < TEX_SIZE; x++) {
+              const edge =
+                x < 6 || x >= TEX_SIZE - 6 || y < 6 || y >= TEX_SIZE - 6;
+              const inner =
+                x > 14 && x < TEX_SIZE - 14 && y > 14 && y < TEX_SIZE - 14;
+              const fineNoise = noise(x * 2, y * 2);
+
+              let r, g, b;
+              if (edge) {
+                r = 35;
+                g = 38;
+                b = 45;
+              } else if (inner) {
+                const grad = 1 - (y / TEX_SIZE) * 0.3;
+                r = 90 * grad;
+                g = 100 * grad;
+                b = 125 * grad;
+              } else {
+                r = 60;
+                g = 68;
+                b = 82;
+              }
+
+              const rivets = [
+                [10, 10],
+                [TEX_SIZE - 11, 10],
+                [10, TEX_SIZE - 11],
+                [TEX_SIZE - 11, TEX_SIZE - 11],
+              ];
+              for (const [rx, ry] of rivets) {
+                const dx = x - rx,
+                  dy = y - ry;
+                const d2 = dx * dx + dy * dy;
+                if (d2 < 6) {
+                  r = 150;
+                  g = 160;
+                  b = 175;
+                } else if (d2 < 12) {
+                  r = 70;
+                  g = 80;
+                  b = 95;
+                }
+              }
+
+              r += (fineNoise - 0.5) * 10;
+              g += (fineNoise - 0.5) * 10;
+              b += (fineNoise - 0.5) * 12;
+
+              out[y * TEX_SIZE + x] = rgb(r, g, b);
+            }
+          }
         }
-    }
-}
 
-genBrick(tex[0]);
-genStone(tex[1]);
-genPanel(tex[2]);
+        genBrick(tex[0]);
+        genStone(tex[1]);
+        genPanel(tex[2]);
 
-function texIndexFor(mx, my) {
-    return ((mx * 7 + my * 13) % 3);
-}
-
-// ============ Спрайт монстра ============
-function monsterPixel(nx, ny, flash, out) {
-    const r2 = nx * nx + ny * ny;
-    if (r2 > 1.0) return false;
-
-    const body = flash ? rgb(255, 100, 100) : rgb(180, 40, 40);
-    const dark = flash ? rgb(180, 0, 0) : rgb(70, 20, 20);
-    const eyeCol = flash ? rgb(255, 255, 0) : rgb(255, 230, 0);
-
-    // Рога
-    if (ny < -0.5 && ny > -1.0) {
-        const halfW = 0.15 * (1.0 - (-ny - 0.5) * 2.0);
-        if (Math.abs(nx - 0.35) < halfW || Math.abs(nx + 0.35) < halfW) {
-            out.c = dark; return true;
+        function texIndexFor(mx, my) {
+          return (mx * 7 + my * 13) % 3;
         }
-    }
-    // Глаза
-    const ex = 0.3, ey = -0.15, er = 0.15;
-    if ((nx - ex) * (nx - ex) + (ny - ey) * (ny - ey) < er * er ||
-        (nx + ex) * (nx + ex) + (ny - ey) * (ny - ey) < er * er) {
-        out.c = eyeCol; return true;
-    }
-    // Рот
-    if (ny > 0.3 && ny < 0.4 && Math.abs(nx) < 0.4) {
-        out.c = dark; return true;
-    }
-    out.c = (ny > 0.5) ? dark : body;
-    return true;
-}
 
-// ============ Оружие ============
-function drawGun(phase) {
-    const cx = SCREEN_W >> 1;
-    const baseY = SCREEN_H - 10;
-    const kick = (phase > 0) ? 8 : 0;
+        // ============ Спрайт человека ============
+        function monsterPixel(nx, ny, flash, out) {
+          if (nx < -1 || nx > 1 || ny < -1 || ny > 1) return false;
 
-    fillRect(cx - 20, baseY - 90 - kick, 40, 90, rgb(50, 30, 20));
-    fillRect(cx - 12, baseY - 180 - kick, 24, 100, rgb(80, 80, 90));
-    fillRect(cx - 6, baseY - 180 - kick, 12, 100, rgb(110, 110, 120));
-    fillRect(cx - 16, baseY - 190 - kick, 32, 12, rgb(40, 40, 50));
+          const skin = flash ? rgb(255, 120, 120) : rgb(198, 152, 112);
+          const skinDark = flash ? rgb(200, 80, 80) : rgb(150, 105, 70);
+          const shirt = flash ? rgb(200, 40, 40) : rgb(52, 72, 55);
+          const shirtDk = flash ? rgb(150, 20, 20) : rgb(32, 48, 38);
+          const pants = flash ? rgb(160, 30, 30) : rgb(40, 45, 65);
+          const pantsDk = flash ? rgb(120, 15, 15) : rgb(22, 25, 40);
+          const boot = flash ? rgb(120, 0, 0) : rgb(28, 20, 15);
+          const hair = flash ? rgb(140, 0, 0) : rgb(45, 30, 20);
+          const eyeWhite = flash ? rgb(255, 255, 0) : rgb(235, 235, 240);
+          const pupil = rgb(15, 10, 10);
+          const mouthCol = flash ? rgb(120, 0, 0) : rgb(80, 25, 25);
 
-    if (phase > 0) {
-        const fr = 30 + phase * 4;
-        const fr2 = fr * fr;
-        for (let y = -fr; y <= fr; y++) {
-            for (let x = -fr; x <= fr; x++) {
+          const headCY = -0.62;
+          const headRX = 0.22;
+          const headRY = 0.28;
+          const hdx = nx / headRX;
+          const hdy = (ny - headCY) / headRY;
+          if (hdx * hdx + hdy * hdy < 1.0) {
+            const edgeFactor = 1 - (hdx * hdx + hdy * hdy);
+            const eyeOff = 0.09;
+            const eyeR = 0.06;
+            const eyeCY = headCY - 0.02;
+            const pR = 0.028;
+            const pCY = eyeCY + 0.01;
+
+            for (const side of [-1, 1]) {
+              const ex = nx - side * eyeOff;
+              const ey = ny - eyeCY;
+              if (ex * ex + ey * ey < eyeR * eyeR) {
+                const px = ex,
+                  py = ny - pCY;
+                if (px * px + py * py < pR * pR) out.c = pupil;
+                else out.c = eyeWhite;
+                return true;
+              }
+            }
+
+            const mouthY = headCY + 0.14;
+            if (ny > mouthY && ny < mouthY + 0.035 && Math.abs(nx) < 0.09) {
+              const m = 1 - Math.abs(nx) / 0.09;
+              if (m > 0.15) {
+                out.c = mouthCol;
+                return true;
+              }
+            }
+
+            if (ny < headCY - 0.1 && hdx * hdx + hdy * hdy < 0.85) {
+              out.c = hair;
+              return true;
+            }
+
+            const shading = 0.7 + edgeFactor * 0.35;
+            out.c = rgb(
+              getR(skin) * shading,
+              getG(skin) * shading,
+              getB(skin) * shading,
+            );
+            return true;
+          }
+
+          if (Math.abs(nx) < 0.07 && ny > -0.38 && ny < -0.28) {
+            out.c = skinDark;
+            return true;
+          }
+
+          if (ny > -0.3 && ny < 0.16) {
+            const t = (ny + 0.3) / 0.46;
+            const halfW = 0.3 - 0.05 * t;
+            if (Math.abs(nx) < halfW) {
+              const sideFactor = 1 - Math.abs(nx) / halfW;
+              const shade = 0.55 + sideFactor * 0.55;
+              if (ny > 0.08 && ny < 0.14) {
+                out.c = darken(pantsDk, shade);
+                return true;
+              }
+              if (ny < -0.27) {
+                out.c = darken(shirtDk, shade);
+                return true;
+              }
+              if (Math.abs(nx) < 0.04) {
+                out.c = darken(shirtDk, shade * 1.05);
+                return true;
+              }
+              out.c = darken(shirt, shade);
+              return true;
+            }
+          }
+
+          if (ny > -0.28 && ny < 0.24) {
+            for (const side of [-1, 1]) {
+              const armCenter = side * 0.38;
+              if (Math.abs(nx - armCenter) < 0.07) {
+                if (ny > 0.12) {
+                  const shade =
+                    0.7 + (1 - Math.abs(nx - armCenter) / 0.07) * 0.3;
+                  out.c = darken(skin, shade);
+                } else {
+                  const shade =
+                    0.55 + (1 - Math.abs(nx - armCenter) / 0.07) * 0.4;
+                  out.c = darken(shirt, shade);
+                }
+                return true;
+              }
+            }
+          }
+
+          if (ny >= 0.16 && ny < 0.84) {
+            for (const side of [-1, 1]) {
+              const legCenter = side * 0.12;
+              if (Math.abs(nx - legCenter) < 0.09) {
+                const sideFactor = 1 - Math.abs(nx - legCenter) / 0.09;
+                const shade = 0.55 + sideFactor * 0.5;
+                if (ny > 0.72) out.c = darken(boot, shade);
+                else out.c = darken(pants, shade);
+                return true;
+              }
+            }
+          }
+
+          if (ny >= 0.84 && ny < 0.97) {
+            for (const side of [-1, 1]) {
+              const footCenter = side * 0.14;
+              if (Math.abs(nx - footCenter) < 0.12) {
+                const sideFactor = 1 - Math.abs(nx - footCenter) / 0.12;
+                const shade = 0.5 + sideFactor * 0.5;
+                out.c = darken(boot, shade);
+                return true;
+              }
+            }
+          }
+
+          return false;
+        }
+
+        // ============ Оружие ============
+        function drawGun(phase) {
+          const cx = SCREEN_W >> 1;
+          const baseY = SCREEN_H - 10;
+          const kick = phase > 0 ? 8 : 0;
+
+          fillRect(cx - 20, baseY - 90 - kick, 40, 90, rgb(45, 28, 18));
+          fillRect(cx - 12, baseY - 180 - kick, 24, 100, rgb(75, 75, 85));
+          fillRect(cx - 6, baseY - 180 - kick, 12, 100, rgb(105, 105, 115));
+          fillRect(cx - 16, baseY - 190 - kick, 32, 12, rgb(35, 35, 45));
+
+          if (phase > 0) {
+            const fr = 30 + phase * 4;
+            const fr2 = fr * fr;
+            for (let y = -fr; y <= fr; y++) {
+              for (let x = -fr; x <= fr; x++) {
                 const d2 = x * x + y * y;
                 if (d2 > fr2) continue;
                 let c;
-                if (d2 < fr2 / 4) c = rgb(255, 255, 200);
-                else if (d2 < fr2 * 3 / 5) c = rgb(255, 200, 0);
-                else c = rgb(255, 100, 0);
+                if (d2 < fr2 / 4) c = rgb(255, 255, 220);
+                else if (d2 < (fr2 * 3) / 5) c = rgb(255, 210, 60);
+                else c = rgb(255, 100, 20);
                 putPixel(cx + x, baseY - 195 - kick + y, c);
+              }
             }
+          }
+          fillRect(cx - 60, baseY - 70, 45, 80, rgb(198, 152, 112));
+          fillRect(cx + 15, baseY - 70, 45, 80, rgb(198, 152, 112));
         }
-    }
-    fillRect(cx - 60, baseY - 70, 45, 80, rgb(200, 150, 120));
-    fillRect(cx + 15, baseY - 70, 45, 80, rgb(200, 150, 120));
-}
 
-function drawCrosshair() {
-    const cx = SCREEN_W >> 1, cy = SCREEN_H >> 1;
-    const col = rgb(0, 255, 0);
-    for (let i = -8; i <= 8; i++) {
-        if (i === 0) continue;
-        putPixel(cx + i, cy, col);
-        putPixel(cx, cy + i, col);
-    }
-}
+        function drawCrosshair() {
+          const cx = SCREEN_W >> 1,
+            cy = SCREEN_H >> 1;
+          const col = rgb(0, 255, 0);
+          for (let i = -8; i <= 8; i++) {
+            if (i === 0) continue;
+            putPixel(cx + i, cy, col);
+            putPixel(cx, cy + i, col);
+          }
+        }
 
-// ============ Состояние игры ============
-let state;
-const zBuffer = new Float64Array(SCREEN_W);
+        // ============ Состояние ============
+        let state;
+        let paused = true;
+        let pointerLocked = false;
+        const zBuffer = new Float64Array(SCREEN_W);
+        const keys = {};
 
-// Ввод
-const keys = {};
+        function initGame() {
+          state = {
+            posX: 2.5,
+            posY: 2.5,
+            dirX: 1.0,
+            dirY: 0.0,
+            planeX: 0.0,
+            planeY: 0.66,
+            gun: { firing: 0, fireStart: 0, ammo: 100 },
+            playerHealth: 100,
+            monsters: [],
+            gameOver: false,
+            lastTick: performance.now(),
+          };
 
-function initGame() {
-    state = {
-        posX: 2.5, posY: 2.5,
-        dirX: 1.0, dirY: 0.0,
-        planeX: 0.0, planeY: 0.66,
-        gun: { firing: 0, fireStart: 0, ammo: 100 },
-        playerHealth: 100,
-        monsters: [],
-        gameOver: false,
-        lastTick: performance.now(),
-    };
+          for (let i = 0; i < NUM_MONSTERS; i++) {
+            let mx, my;
+            do {
+              mx = 1 + Math.floor(Math.random() * (MAP_W - 2));
+              my = 1 + Math.floor(Math.random() * (MAP_H - 2));
+            } while (worldMap[mx][my] !== 0);
+            state.monsters.push({
+              x: mx + 0.5,
+              y: my + 0.5,
+              alive: true,
+              health: 3,
+              hitFlashUntil: 0,
+              lastBite: 0,
+              speed: 1.2 + Math.random(),
+            });
+          }
+          overlay.style.display = "none";
+        }
 
-    // Спавн монстров
-    for (let i = 0; i < NUM_MONSTERS; i++) {
-        let mx, my;
-        do {
-            mx = 1 + Math.floor(Math.random() * (MAP_W - 2));
-            my = 1 + Math.floor(Math.random() * (MAP_H - 2));
-        } while (worldMap[mx][my] !== 0);
-        state.monsters.push({
-            x: mx + 0.5,
-            y: my + 0.5,
-            alive: true,
-            health: 3,
-            hitFlashUntil: 0,
-            lastBite: 0,
-            speed: 1.2 + Math.random(),
-        });
-    }
+        // ============ Стрельба ============
+        function fireGun(now) {
+          const s = state;
+          if (s.gameOver || paused) return;
+          if (s.gun.firing) return;
+          if (s.gun.ammo <= 0) return;
+          s.gun.firing = 1;
+          s.gun.fireStart = now || performance.now();
+          s.gun.ammo--;
+          tryShoot();
+        }
 
-    overlay.style.display = 'none';
-}
+        function tryShoot() {
+          const s = state;
+          let bestDist = 1e30;
+          let bestIdx = -1;
+          for (let i = 0; i < s.monsters.length; i++) {
+            const m = s.monsters[i];
+            if (!m.alive) continue;
+            const dx = m.x - s.posX;
+            const dy = m.y - s.posY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 20) continue;
+            const dot =
+              (dx * s.dirX + dy * s.dirY) /
+              (dist * Math.sqrt(s.dirX * s.dirX + s.dirY * s.dirY));
+            if (dot < 0.97) continue;
+            const steps = Math.floor(dist * 4);
+            let blocked = false;
+            for (let k = 1; k < steps; k++) {
+              const t = k / steps;
+              const mx = Math.floor(s.posX + dx * t);
+              const my = Math.floor(s.posY + dy * t);
+              if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) {
+                blocked = true;
+                break;
+              }
+              if (worldMap[mx][my] > 0) {
+                blocked = true;
+                break;
+              }
+            }
+            if (!blocked && dist < bestDist) {
+              bestDist = dist;
+              bestIdx = i;
+            }
+          }
+          if (bestIdx >= 0) {
+            const m = s.monsters[bestIdx];
+            m.health--;
+            m.hitFlashUntil = performance.now() + 120;
+            if (m.health <= 0) m.alive = false;
+          }
+        }
 
-// ============ Стрельба ============
-function tryShoot() {
-    const s = state;
-    let bestDist = 1e30;
-    let bestIdx = -1;
-    for (let i = 0; i < s.monsters.length; i++) {
-        const m = s.monsters[i];
-        if (!m.alive) continue;
-        const dx = m.x - s.posX;
-        const dy = m.y - s.posY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > 20) continue;
-        const dot = (dx * s.dirX + dy * s.dirY) / (dist * Math.sqrt(s.dirX * s.dirX + s.dirY * s.dirY));
-        if (dot < 0.97) continue;
-        const steps = Math.floor(dist * 4);
-        let blocked = false;
-        for (let k = 1; k < steps; k++) {
+        // ============ AI ============
+        function hasLineOfSight(x1, y1, x2, y2) {
+          const dx = x2 - x1,
+            dy = y2 - y1;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const steps = Math.floor(dist * 6);
+          for (let k = 1; k < steps; k++) {
             const t = k / steps;
-            const mx = Math.floor(s.posX + dx * t);
-            const my = Math.floor(s.posY + dy * t);
-            if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) { blocked = true; break; }
-            if (worldMap[mx][my] > 0) { blocked = true; break; }
+            const mx = Math.floor(x1 + dx * t);
+            const my = Math.floor(y1 + dy * t);
+            if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return false;
+            if (worldMap[mx][my] > 0) return false;
+          }
+          return true;
         }
-        if (!blocked && dist < bestDist) {
-            bestDist = dist;
-            bestIdx = i;
+
+        function moveMonsterTowards(m, tx, ty, step) {
+          let dx = tx - m.x;
+          let dy = ty - m.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 1e-3) return;
+          dx /= dist;
+          dy /= dist;
+
+          const nx = m.x + dx * step;
+          const ny = m.y + dy * step;
+          if (worldMap[Math.floor(nx)][Math.floor(ny)] === 0) {
+            m.x = nx;
+            m.y = ny;
+            return;
+          }
+          if (worldMap[Math.floor(m.x + dx * step)][Math.floor(m.y)] === 0) {
+            m.x += dx * step;
+            return;
+          }
+          if (worldMap[Math.floor(m.x)][Math.floor(m.y + dy * step)] === 0) {
+            m.y += dy * step;
+            return;
+          }
+          const px = -dy,
+            py = dx;
+          if (
+            worldMap[Math.floor(m.x + px * step)][
+              Math.floor(m.y + py * step)
+            ] === 0
+          ) {
+            m.x += px * step;
+            m.y += py * step;
+            return;
+          }
+          if (
+            worldMap[Math.floor(m.x - px * step)][
+              Math.floor(m.y - py * step)
+            ] === 0
+          ) {
+            m.x -= px * step;
+            m.y -= py * step;
+            return;
+          }
         }
-    }
-    if (bestIdx >= 0) {
-        const m = s.monsters[bestIdx];
-        m.health--;
-        m.hitFlashUntil = performance.now() + 120;
-        if (m.health <= 0) m.alive = false;
-    }
-}
 
-// ============ AI ============
-function hasLineOfSight(x1, y1, x2, y2) {
-    const dx = x2 - x1, dy = y2 - y1;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const steps = Math.floor(dist * 6);
-    for (let k = 1; k < steps; k++) {
-        const t = k / steps;
-        const mx = Math.floor(x1 + dx * t);
-        const my = Math.floor(y1 + dy * t);
-        if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return false;
-        if (worldMap[mx][my] > 0) return false;
-    }
-    return true;
-}
+        // ============ Поворот ============
+        function rotatePlayer(angle) {
+          const s = state;
+          const cs = Math.cos(angle),
+            sn = Math.sin(angle);
+          const dx = s.dirX,
+            dy = s.dirY;
+          s.dirX = dx * cs - dy * sn;
+          s.dirY = dx * sn + dy * cs;
+          const px = s.planeX,
+            py = s.planeY;
+          s.planeX = px * cs - py * sn;
+          s.planeY = px * sn + py * cs;
+        }
 
-function moveMonsterTowards(m, tx, ty, step) {
-    let dx = tx - m.x;
-    let dy = ty - m.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 1e-3) return;
-    dx /= dist; dy /= dist;
+        // ============ Fullscreen ============
+        function toggleFullscreen() {
+          if (document.fullscreenElement || document.webkitFullscreenElement) {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen)
+              document.webkitExitFullscreen();
+          } else {
+            if (wrap.requestFullscreen) wrap.requestFullscreen();
+            else if (wrap.webkitRequestFullscreen)
+              wrap.webkitRequestFullscreen();
+          }
+        }
 
-    let nx = m.x + dx * step;
-    let ny = m.y + dy * step;
-    if (worldMap[Math.floor(nx)][Math.floor(ny)] === 0) { m.x = nx; m.y = ny; return; }
-    if (worldMap[Math.floor(m.x + dx * step)][Math.floor(m.y)] === 0) { m.x += dx * step; return; }
-    if (worldMap[Math.floor(m.x)][Math.floor(m.y + dy * step)] === 0) { m.y += dy * step; return; }
-    const px = -dy, py = dx;
-    if (worldMap[Math.floor(m.x + px * step)][Math.floor(m.y + py * step)] === 0) {
-        m.x += px * step; m.y += py * step; return;
-    }
-    if (worldMap[Math.floor(m.x - px * step)][Math.floor(m.y - py * step)] === 0) {
-        m.x -= px * step; m.y -= py * step; return;
-    }
-}
+        fsBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          toggleFullscreen();
+        });
 
-// ============ Ввод ============
-window.addEventListener('keydown', (e) => {
-    keys[e.code] = true;
-    if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'KeyS' ||
-        e.code === 'KeyA' || e.code === 'KeyD' || e.code === 'KeyQ' || e.code === 'KeyE') {
-        e.preventDefault();
-    }
-    if (e.code === 'KeyR') initGame();
-});
-window.addEventListener('keyup', (e) => {
-    keys[e.code] = false;
-});
-canvas.addEventListener('mousedown', () => {
-    keys['Space'] = true;
-});
-window.addEventListener('mouseup', () => {
-    keys['Space'] = false;
-});
+        document.addEventListener("fullscreenchange", () => {
+          // ничего не делаем, CSS сам разберётся
+        });
+        document.addEventListener("webkitfullscreenchange", () => {});
 
-// ============ Игровой цикл ============
-function update(now) {
-    const s = state;
-    let dt = (now - s.lastTick) / 1000;
-    if (dt > 0.1) dt = 0.1;
-    s.lastTick = now;
+        // ============ Pointer Lock ============
+        function requestLock() {
+          if (state.gameOver) return;
+          canvas.requestPointerLock();
+        }
+        pauseEl.addEventListener("click", requestLock);
+        canvas.addEventListener("click", () => {
+          if (!pointerLocked) requestLock();
+        });
 
-    if (s.gameOver) return;
+        document.addEventListener("pointerlockchange", () => {
+          if (document.pointerLockElement === canvas) {
+            pointerLocked = true;
+            paused = false;
+            pauseEl.style.display = "none";
+            state.lastTick = performance.now();
+          } else {
+            pointerLocked = false;
+            paused = true;
+            if (!state.gameOver) pauseEl.style.display = "flex";
+          }
+        });
 
-    const moveSpeed = 3.5 * dt;
-    const rotSpeed = 2.5 * dt;
+        // Мышь → поворот
+        document.addEventListener("mousemove", (e) => {
+          if (!pointerLocked || paused || state.gameOver) return;
+          const dx = e.movementX || 0;
+          if (dx !== 0) rotatePlayer(dx * MOUSE_SENS);
+        });
 
-    // Движение
-    if (keys['KeyW']) {
-        const nx = s.posX + s.dirX * moveSpeed;
-        const ny = s.posY + s.dirY * moveSpeed;
-        if (worldMap[Math.floor(nx)][Math.floor(s.posY)] === 0) s.posX = nx;
-        if (worldMap[Math.floor(s.posX)][Math.floor(ny)] === 0) s.posY = ny;
-    }
-    if (keys['KeyS']) {
-        const nx = s.posX - s.dirX * moveSpeed;
-        const ny = s.posY - s.dirY * moveSpeed;
-        if (worldMap[Math.floor(nx)][Math.floor(s.posY)] === 0) s.posX = nx;
-        if (worldMap[Math.floor(s.posX)][Math.floor(ny)] === 0) s.posY = ny;
-    }
+        // ЛКМ → выстрел
+        document.addEventListener("mousedown", (e) => {
+          if (e.button !== 0) return;
+          if (!pointerLocked) {
+            requestLock();
+            return;
+          }
+          if (paused || state.gameOver) return;
+          fireGun(performance.now());
+          e.preventDefault();
+        });
 
-    // Поворот: A = влево (минус), D = вправо (плюс)
-    if (keys['KeyA']) {
-        const cs = Math.cos(-rotSpeed), sn = Math.sin(-rotSpeed);
-        const o = s.dirX;
-        s.dirX = s.dirX * cs - s.dirY * sn;
-        s.dirY = o * sn + s.dirY * cs;
-        const op = s.planeX;
-        s.planeX = s.planeX * cs - s.planeY * sn;
-        s.planeY = op * sn + s.planeY * cs;
-    }
-    if (keys['KeyD']) {
-        const cs = Math.cos(rotSpeed), sn = Math.sin(rotSpeed);
-        const o = s.dirX;
-        s.dirX = s.dirX * cs - s.dirY * sn;
-        s.dirY = o * sn + s.dirY * cs;
-        const op = s.planeX;
-        s.planeX = s.planeX * cs - s.planeY * sn;
-        s.planeY = op * sn + s.planeY * cs;
-    }
+        // Отключаем контекстное меню на канвасе
+        canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-    // Стрейф
-    if (keys['KeyQ']) {
-        const nx = s.posX + s.dirY * moveSpeed;
-        const ny = s.posY - s.dirX * moveSpeed;
-        if (worldMap[Math.floor(nx)][Math.floor(s.posY)] === 0) s.posX = nx;
-        if (worldMap[Math.floor(s.posX)][Math.floor(ny)] === 0) s.posY = ny;
-    }
-    if (keys['KeyE']) {
-        const nx = s.posX - s.dirY * moveSpeed;
-        const ny = s.posY + s.dirX * moveSpeed;
-        if (worldMap[Math.floor(nx)][Math.floor(s.posY)] === 0) s.posX = nx;
-        if (worldMap[Math.floor(s.posX)][Math.floor(ny)] === 0) s.posY = ny;
-    }
+        // ============ Ввод ============
+        window.addEventListener("keydown", (e) => {
+          keys[e.code] = true;
+          if (
+            [
+              "Space",
+              "KeyW",
+              "KeyS",
+              "KeyA",
+              "KeyD",
+              "KeyQ",
+              "KeyE",
+              "KeyF",
+            ].includes(e.code)
+          )
+            e.preventDefault();
+          if (e.code === "KeyR") initGame();
+          if (e.code === "KeyF") toggleFullscreen();
+          if (e.code === "Space" && !paused && !state.gameOver) {
+            fireGun(performance.now());
+          }
+        });
+        window.addEventListener("keyup", (e) => {
+          keys[e.code] = false;
+        });
 
-    // Выстрел
-    if (keys['Space'] && !s.gun.firing && s.gun.ammo > 0) {
-        s.gun.firing = 1;
-        s.gun.fireStart = now;
-        s.gun.ammo--;
-        tryShoot();
-    }
+        // ============ Update ============
+        function update(now) {
+          const s = state;
+          let dt = (now - s.lastTick) / 1000;
+          if (dt > 0.1) dt = 0.1;
+          s.lastTick = now;
 
-    // AI
-    for (const m of s.monsters) {
-        if (!m.alive) continue;
-        const dx = s.posX - m.x;
-        const dy = s.posY - m.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 10 && hasLineOfSight(m.x, m.y, s.posX, s.posY)) {
-            if (dist > 0.8) {
+          if (s.gameOver || paused) return;
+
+          const moveSpeed = 3.5 * dt;
+
+          // Вперёд / назад
+          if (keys["KeyW"]) {
+            const nx = s.posX + s.dirX * moveSpeed;
+            const ny = s.posY + s.dirY * moveSpeed;
+            if (worldMap[Math.floor(nx)][Math.floor(s.posY)] === 0) s.posX = nx;
+            if (worldMap[Math.floor(s.posX)][Math.floor(ny)] === 0) s.posY = ny;
+          }
+          if (keys["KeyS"]) {
+            const nx = s.posX - s.dirX * moveSpeed;
+            const ny = s.posY - s.dirY * moveSpeed;
+            if (worldMap[Math.floor(nx)][Math.floor(s.posY)] === 0) s.posX = nx;
+            if (worldMap[Math.floor(s.posX)][Math.floor(ny)] === 0) s.posY = ny;
+          }
+
+          // Стрейф (A = влево, D = вправо) — как в классических FPS
+          // Влево = +перпендикуляр (dirY, -dirX)
+          if (keys["KeyA"]) {
+            const nx = s.posX + s.dirY * moveSpeed;
+            const ny = s.posY - s.dirX * moveSpeed;
+            if (worldMap[Math.floor(nx)][Math.floor(s.posY)] === 0) s.posX = nx;
+            if (worldMap[Math.floor(s.posX)][Math.floor(ny)] === 0) s.posY = ny;
+          }
+          if (keys["KeyD"]) {
+            const nx = s.posX - s.dirY * moveSpeed;
+            const ny = s.posY + s.dirX * moveSpeed;
+            if (worldMap[Math.floor(nx)][Math.floor(s.posY)] === 0) s.posX = nx;
+            if (worldMap[Math.floor(s.posX)][Math.floor(ny)] === 0) s.posY = ny;
+          }
+
+          // Q/E больше не нужны, но оставил как дополнительный стрейф (на всякий случай)
+          if (keys["KeyQ"]) {
+            const nx = s.posX + s.dirY * moveSpeed;
+            const ny = s.posY - s.dirX * moveSpeed;
+            if (worldMap[Math.floor(nx)][Math.floor(s.posY)] === 0) s.posX = nx;
+            if (worldMap[Math.floor(s.posX)][Math.floor(ny)] === 0) s.posY = ny;
+          }
+          if (keys["KeyE"]) {
+            const nx = s.posX - s.dirY * moveSpeed;
+            const ny = s.posY + s.dirX * moveSpeed;
+            if (worldMap[Math.floor(nx)][Math.floor(s.posY)] === 0) s.posX = nx;
+            if (worldMap[Math.floor(s.posX)][Math.floor(ny)] === 0) s.posY = ny;
+          }
+
+          // Монстры
+          for (const m of s.monsters) {
+            if (!m.alive) continue;
+            const dx = s.posX - m.x;
+            const dy = s.posY - m.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 10 && hasLineOfSight(m.x, m.y, s.posX, s.posY)) {
+              if (dist > 0.8) {
                 moveMonsterTowards(m, s.posX, s.posY, m.speed * dt);
-            } else if (now - m.lastBite > 700) {
+              } else if (now - m.lastBite > 700) {
                 m.lastBite = now;
                 s.playerHealth -= 8;
                 if (s.playerHealth < 0) s.playerHealth = 0;
+              }
             }
-        }
-    }
+          }
 
-    if (s.playerHealth <= 0) {
-        s.gameOver = true;
-        overlay.style.display = 'flex';
-    }
-}
-
-// ============ Рендер ============
-function render(now) {
-    const s = state;
-
-    if (s.gameOver) {
-        fillRect(0, 0, SCREEN_W, SCREEN_H, rgb(80, 0, 0));
-        ctx.putImageData(imageData, 0, 0);
-        return;
-    }
-
-    // Небо / пол
-    const skyCol = rgb(25, 25, 55);
-    const floorCol = rgb(45, 35, 35);
-    for (let y = 0; y < SCREEN_H; y++) {
-        const c = (y < SCREEN_H / 2) ? skyCol : floorCol;
-        const off = y * SCREEN_W;
-        for (let x = 0; x < SCREEN_W; x++) buf[off + x] = c;
-    }
-
-    // Стены
-    for (let x = 0; x < SCREEN_W; x++) {
-        const cameraX = 2.0 * x / SCREEN_W - 1.0;
-        const rdx = s.dirX + s.planeX * cameraX;
-        const rdy = s.dirY + s.planeY * cameraX;
-
-        let mapX = Math.floor(s.posX);
-        let mapY = Math.floor(s.posY);
-
-        const ddx = (rdx === 0) ? 1e30 : Math.abs(1.0 / rdx);
-        const ddy = (rdy === 0) ? 1e30 : Math.abs(1.0 / rdy);
-        let sdx, sdy;
-        let stepX, stepY, side = 0, hit = false;
-
-        if (rdx < 0) { stepX = -1; sdx = (s.posX - mapX) * ddx; }
-        else { stepX = 1; sdx = (mapX + 1.0 - s.posX) * ddx; }
-        if (rdy < 0) { stepY = -1; sdy = (s.posY - mapY) * ddy; }
-        else { stepY = 1; sdy = (mapY + 1.0 - s.posY) * ddy; }
-
-        while (!hit) {
-            if (sdx < sdy) { sdx += ddx; mapX += stepX; side = 0; }
-            else { sdy += ddy; mapY += stepY; side = 1; }
-            if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) break;
-            if (worldMap[mapX][mapY] > 0) hit = true;
+          if (s.playerHealth <= 0) {
+            s.gameOver = true;
+            overlay.style.display = "flex";
+            if (document.pointerLockElement) document.exitPointerLock();
+          }
         }
 
-        let perp;
-        if (side === 0) perp = (mapX - s.posX + (1 - stepX) / 2.0) / rdx;
-        else perp = (mapY - s.posY + (1 - stepY) / 2.0) / rdy;
-        if (perp < 0.01) perp = 0.01;
-        zBuffer[x] = perp;
+        // ============ Render ============
+        function render(now) {
+          const s = state;
 
-        const lh = Math.floor(SCREEN_H / perp);
-        let ds = -lh / 2 + SCREEN_H / 2;
-        if (ds < 0) ds = 0;
-        let de = lh / 2 + SCREEN_H / 2;
-        if (de >= SCREEN_H) de = SCREEN_H - 1;
-        ds = Math.floor(ds);
-        de = Math.floor(de);
+          if (s.gameOver) {
+            fillRect(0, 0, SCREEN_W, SCREEN_H, rgb(60, 0, 0));
+            ctx.putImageData(imageData, 0, 0);
+            return;
+          }
 
-        const tIdx = texIndexFor(mapX, mapY);
-        const texture = tex[tIdx];
-
-        let wallX;
-        if (side === 0) wallX = s.posY + perp * rdy;
-        else wallX = s.posX + perp * rdx;
-        wallX -= Math.floor(wallX);
-        let texX = Math.floor(wallX * TEX_SIZE);
-        if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0))
-            texX = TEX_SIZE - texX - 1;
-        if (texX < 0) texX = 0;
-        if (texX >= TEX_SIZE) texX = TEX_SIZE - 1;
-
-        const stepTex = TEX_SIZE / lh;
-        let texPos = (ds - SCREEN_H / 2 + lh / 2) * stepTex;
-
-        for (let y = ds; y < de; y++) {
-            const texY = Math.floor(texPos) & (TEX_SIZE - 1);
-            texPos += stepTex;
-            let c = texture[texY * TEX_SIZE + texX];
-            if (side === 1) {
-                // Затемнение: извлекаем BGR, умножаем на 2/3
-                const r = (c & 0xFF) * 2 / 3;
-                const g = ((c >> 8) & 0xFF) * 2 / 3;
-                const b = ((c >> 16) & 0xFF) * 2 / 3;
-                c = rgb(r | 0, g | 0, b | 0);
+          for (let y = 0; y < SCREEN_H; y++) {
+            let c;
+            if (y < SCREEN_H / 2) {
+              const t = y / (SCREEN_H / 2);
+              c = rgb(20 + 15 * t, 22 + 18 * t, 45 + 25 * t);
+            } else {
+              const t = (y - SCREEN_H / 2) / (SCREEN_H / 2);
+              c = rgb(35 - 10 * t, 28 - 8 * t, 28 - 8 * t);
             }
-            buf[y * SCREEN_W + x] = c;
-        }
-    }
+            const off = y * SCREEN_W;
+            for (let x = 0; x < SCREEN_W; x++) buf[off + x] = c;
+          }
 
-    // Монстры
-    const order = [];
-    for (let i = 0; i < s.monsters.length; i++) {
-        const m = s.monsters[i];
-        if (!m.alive) continue;
-        const dx = m.x - s.posX;
-        const dy = m.y - s.posY;
-        order.push({ i, d: dx * dx + dy * dy });
-    }
-    order.sort((a, b) => b.d - a.d);
+          const fogColor = rgb(40, 40, 55);
 
-    const invDet = 1.0 / (s.planeX * s.dirY - s.dirX * s.planeY);
-    const tmp = { c: 0 };
+          for (let x = 0; x < SCREEN_W; x++) {
+            const cameraX = (2.0 * x) / SCREEN_W - 1.0;
+            const rdx = s.dirX + s.planeX * cameraX;
+            const rdy = s.dirY + s.planeY * cameraX;
 
-    for (const { i } of order) {
-        const m = s.monsters[i];
-        const spriteX = m.x - s.posX;
-        const spriteY = m.y - s.posY;
+            let mapX = Math.floor(s.posX);
+            let mapY = Math.floor(s.posY);
 
-        const tX = invDet * (s.dirY * spriteX - s.dirX * spriteY);
-        const tY = invDet * (-s.planeY * spriteX + s.planeX * spriteY);
-        if (tY <= 0.2) continue;
+            const ddx = rdx === 0 ? 1e30 : Math.abs(1.0 / rdx);
+            const ddy = rdy === 0 ? 1e30 : Math.abs(1.0 / rdy);
+            let sdx, sdy;
+            let stepX,
+              stepY,
+              side = 0,
+              hit = false;
 
-        const spriteScreenX = Math.floor((SCREEN_W / 2) * (1 + tX / tY));
-        const spriteH = Math.abs(Math.floor(SCREEN_H / tY));
-        const spriteW = spriteH;
-        if (spriteH < 4) continue;
+            if (rdx < 0) {
+              stepX = -1;
+              sdx = (s.posX - mapX) * ddx;
+            } else {
+              stepX = 1;
+              sdx = (mapX + 1.0 - s.posX) * ddx;
+            }
+            if (rdy < 0) {
+              stepY = -1;
+              sdy = (s.posY - mapY) * ddy;
+            } else {
+              stepY = 1;
+              sdy = (mapY + 1.0 - s.posY) * ddy;
+            }
 
-        let drawStartY = Math.floor(-spriteH / 2 + SCREEN_H / 2);
-        let drawEndY = Math.floor(spriteH / 2 + SCREEN_H / 2);
-        let drawStartX = Math.floor(-spriteW / 2 + spriteScreenX);
-        let drawEndX = Math.floor(spriteW / 2 + spriteScreenX);
-        if (drawStartY < 0) drawStartY = 0;
-        if (drawEndY > SCREEN_H) drawEndY = SCREEN_H;
-        if (drawStartX < 0) drawStartX = 0;
-        if (drawEndX > SCREEN_W) drawEndX = SCREEN_W;
+            while (!hit) {
+              if (sdx < sdy) {
+                sdx += ddx;
+                mapX += stepX;
+                side = 0;
+              } else {
+                sdy += ddy;
+                mapY += stepY;
+                side = 1;
+              }
+              if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) break;
+              if (worldMap[mapX][mapY] > 0) hit = true;
+            }
 
-        const flash = m.hitFlashUntil > now;
-        const halfH = spriteH / 2;
-        const halfW = spriteW / 2;
-        const spriteBaseY = SCREEN_H / 2 - halfH;
+            let perp;
+            if (side === 0) perp = (mapX - s.posX + (1 - stepX) / 2.0) / rdx;
+            else perp = (mapY - s.posY + (1 - stepY) / 2.0) / rdy;
+            if (perp < 0.01) perp = 0.01;
+            zBuffer[x] = perp;
 
-        for (let yy = drawStartY; yy < drawEndY; yy++) {
-            const sy = yy - spriteBaseY;
-            if (sy < 0 || sy >= spriteH) continue;
-            const ny = (sy / spriteH) * 2.0 - 1.0;
-            const rowOff = yy * SCREEN_W;
-            for (let xx = drawStartX; xx < drawEndX; xx++) {
+            const lh = Math.floor(SCREEN_H / perp);
+            let ds = -lh / 2 + SCREEN_H / 2;
+            if (ds < 0) ds = 0;
+            let de = lh / 2 + SCREEN_H / 2;
+            if (de >= SCREEN_H) de = SCREEN_H - 1;
+            ds = Math.floor(ds);
+            de = Math.floor(de);
+
+            const tIdx = texIndexFor(mapX, mapY);
+            const texture = tex[tIdx];
+
+            let wallX;
+            if (side === 0) wallX = s.posY + perp * rdy;
+            else wallX = s.posX + perp * rdx;
+            wallX -= Math.floor(wallX);
+            let texX = Math.floor(wallX * TEX_SIZE);
+            if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0))
+              texX = TEX_SIZE - texX - 1;
+            if (texX < 0) texX = 0;
+            if (texX >= TEX_SIZE) texX = TEX_SIZE - 1;
+
+            const stepTex = TEX_SIZE / lh;
+            let texPos = (ds - SCREEN_H / 2 + lh / 2) * stepTex;
+
+            const sideDark = side === 1 ? 0.78 : 1.0;
+            let fogT = (perp - FOG_START) / (FOG_END - FOG_START);
+            if (fogT < 0) fogT = 0;
+            if (fogT > 1) fogT = 1;
+
+            for (let y = ds; y < de; y++) {
+              const texY = Math.floor(texPos) & (TEX_SIZE - 1);
+              texPos += stepTex;
+              let c = texture[texY * TEX_SIZE + texX];
+              let r = getR(c) * sideDark;
+              let g = getG(c) * sideDark;
+              let b = getB(c) * sideDark;
+              if (fogT > 0) {
+                r = r * (1 - fogT) + getR(fogColor) * fogT;
+                g = g * (1 - fogT) + getG(fogColor) * fogT;
+                b = b * (1 - fogT) + getB(fogColor) * fogT;
+              }
+              buf[y * SCREEN_W + x] = rgb(r, g, b);
+            }
+          }
+
+          const order = [];
+          for (let i = 0; i < s.monsters.length; i++) {
+            const m = s.monsters[i];
+            if (!m.alive) continue;
+            const dx = m.x - s.posX;
+            const dy = m.y - s.posY;
+            order.push({ i, d: dx * dx + dy * dy });
+          }
+          order.sort((a, b) => b.d - a.d);
+
+          const invDet = 1.0 / (s.planeX * s.dirY - s.dirX * s.planeY);
+          const tmp = { c: 0 };
+
+          for (const { i } of order) {
+            const m = s.monsters[i];
+            const spriteX = m.x - s.posX;
+            const spriteY = m.y - s.posY;
+
+            const tX = invDet * (s.dirY * spriteX - s.dirX * spriteY);
+            const tY = invDet * (-s.planeY * spriteX + s.planeX * spriteY);
+            if (tY <= 0.2) continue;
+
+            const spriteScreenX = Math.floor((SCREEN_W / 2) * (1 + tX / tY));
+            const spriteH = Math.abs(Math.floor(SCREEN_H / tY));
+            const spriteW = spriteH;
+            if (spriteH < 4) continue;
+
+            let drawStartY = Math.floor(-spriteH / 2 + SCREEN_H / 2);
+            let drawEndY = Math.floor(spriteH / 2 + SCREEN_H / 2);
+            let drawStartX = Math.floor(-spriteW / 2 + spriteScreenX);
+            let drawEndX = Math.floor(spriteW / 2 + spriteScreenX);
+            if (drawStartY < 0) drawStartY = 0;
+            if (drawEndY > SCREEN_H) drawEndY = SCREEN_H;
+            if (drawStartX < 0) drawStartX = 0;
+            if (drawEndX > SCREEN_W) drawEndX = SCREEN_W;
+
+            const flash = m.hitFlashUntil > now;
+            const halfH = spriteH / 2;
+            const halfW = spriteW / 2;
+            const spriteBaseY = SCREEN_H / 2 - halfH;
+
+            let fogT = (tY - FOG_START) / (FOG_END - FOG_START);
+            if (fogT < 0) fogT = 0;
+            if (fogT > 1) fogT = 1;
+
+            for (let yy = drawStartY; yy < drawEndY; yy++) {
+              const sy = yy - spriteBaseY;
+              if (sy < 0 || sy >= spriteH) continue;
+              const ny = (sy / spriteH) * 2.0 - 1.0;
+              const rowOff = yy * SCREEN_W;
+              for (let xx = drawStartX; xx < drawEndX; xx++) {
                 if (tY >= zBuffer[xx]) continue;
                 const sx = xx - (spriteScreenX - halfW);
                 if (sx < 0 || sx >= spriteW) continue;
                 const nx = (sx / spriteW) * 2.0 - 1.0;
-                if (monsterPixel(nx, ny, flash, tmp))
-                    buf[rowOff + xx] = tmp.c;
+                if (monsterPixel(nx, ny, flash, tmp)) {
+                  let c = tmp.c;
+                  if (fogT > 0) c = mix(c, fogColor, fogT);
+                  buf[rowOff + xx] = c;
+                }
+              }
             }
+          }
+
+          let gunPhase = 0;
+          if (s.gun.firing) {
+            const el = now - s.gun.fireStart;
+            if (el < 120) gunPhase = 3;
+            else if (el < 240) gunPhase = 2;
+            else if (el < 360) gunPhase = 1;
+            else s.gun.firing = 0;
+          }
+          drawGun(gunPhase);
+          drawCrosshair();
+
+          fillRect(0, SCREEN_H - 34, SCREEN_W, 34, rgb(18, 18, 22));
+          fillRect(10, SCREEN_H - 26, s.gun.ammo * 2, 14, rgb(255, 200, 0));
+          let hpCol;
+          if (s.playerHealth > 50) hpCol = rgb(0, 200, 0);
+          else if (s.playerHealth > 25) hpCol = rgb(220, 180, 0);
+          else hpCol = rgb(220, 0, 0);
+          fillRect(
+            SCREEN_W - 10 - s.playerHealth * 2,
+            SCREEN_H - 26,
+            s.playerHealth * 2,
+            14,
+            hpCol,
+          );
+
+          ctx.putImageData(imageData, 0, 0);
         }
-    }
 
-    // Оружие
-    let gunPhase = 0;
-    if (s.gun.firing) {
-        const el = now - s.gun.fireStart;
-        if (el < 120) gunPhase = 3;
-        else if (el < 240) gunPhase = 2;
-        else if (el < 360) gunPhase = 1;
-        else s.gun.firing = 0;
-    }
-    drawGun(gunPhase);
-    drawCrosshair();
+        // ============ Цикл ============
+        function loop(now) {
+          update(now);
+          render(now);
+          requestAnimationFrame(loop);
+        }
 
-    // HUD
-    fillRect(0, SCREEN_H - 34, SCREEN_W, 34, rgb(20, 20, 20));
-    fillRect(10, SCREEN_H - 26, s.gun.ammo * 2, 14, rgb(255, 200, 0));
-    let hpCol;
-    if (s.playerHealth > 50) hpCol = rgb(0, 200, 0);
-    else if (s.playerHealth > 25) hpCol = rgb(220, 180, 0);
-    else hpCol = rgb(220, 0, 0);
-    fillRect(SCREEN_W - 10 - s.playerHealth * 2, SCREEN_H - 26,
-             s.playerHealth * 2, 14, hpCol);
-
-    ctx.putImageData(imageData, 0, 0);
-}
-
-// ============ Цикл ============
-function loop(now) {
-    update(now);
-    render(now);
-    requestAnimationFrame(loop);
-}
-
-initGame();
-requestAnimationFrame(loop);
-
-})();
-</script>
-</body>
+        initGame();
+        pauseEl.style.display = "flex";
+        requestAnimationFrame(loop);
+      })();
+    </script>
+  </body>
 </html>
